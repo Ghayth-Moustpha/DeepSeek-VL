@@ -24,6 +24,9 @@ from io import BytesIO
 
 import gradio as gr
 import torch
+from transformers import AutoModelForCausalLM
+from deepseek_vl.models import VLChatProcessor
+
 from app_modules.gradio_utils import (
     cancel_outputing,
     delete_last_conversation,
@@ -39,18 +42,35 @@ from app_modules.utils import configure_logger, is_variable_assigned, strip_stop
 from deepseek_vl.serve.inference import (
     convert_conversation_to_prompts,
     deepseek_generate,
-    load_model,
+    # load_model,   # no longer used
 )
 from deepseek_vl.utils.conversation import SeparatorStyle
 
 
 def load_models():
-    models = {
-        "DeepSeek-VL 7B": "deepseek-ai/deepseek-vl-7b-chat",
+    model_paths = {
+        "DeepSeek-VL 1.3B": "deepseek-ai/deepseek-vl-1.3b-chat",
+        #"DeepSeek-VL 7B": "deepseek-ai/deepseek-vl-7b-chat",
     }
 
-    for model_name in models:
-        models[model_name] = load_model(models[model_name])
+    models = {}
+    for name, path in model_paths.items():
+        print(f"Loading {name} from {path}...")
+        # Load processor
+        vl_chat_processor = VLChatProcessor.from_pretrained(path)
+        tokenizer = vl_chat_processor.tokenizer
+
+        # Load model with lightweight config (float16, auto device map)
+        vl_gpt = AutoModelForCausalLM.from_pretrained(
+            path,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            trust_remote_code=True
+        )
+        vl_gpt.eval()
+
+        models[name] = (tokenizer, vl_gpt, vl_chat_processor)
+        print(f"{name} loaded successfully.")
 
     return models
 
@@ -98,6 +118,12 @@ def generate_prompt_with_history(
     conversation.append_message(conversation.roles[bot_role_ind], "")
 
     # Create a copy of the conversation to avoid history truncation in the UI
+    # we will maintain a copy of the conversation that reflects any
+    # truncation that may happen below.  the original code created one
+    # snapshot prior to trimming, which meant that when we shortened the
+    # conversation to satisfy `max_length` the returned object still
+    # contained the old, longer history.  the bot would then see the
+    # un‑truncated history again and could hit the length cutoff repeatedly.
     conversation_copy = conversation.copy()
     logger.info("=" * 80)
     logger.info(get_prompt(conversation))
@@ -113,15 +139,21 @@ def generate_prompt_with_history(
         )
 
         if torch.tensor(tokenizer.encode(current_prompt)).size(-1) <= max_length:
-            return conversation_copy
+            # by the time we return we want the copy to reflect any messages
+            # we dropped above; rebuild it here.
+            return conversation.copy()
 
         if len(conversation.messages) % 2 != 0:
             gr.Error("The messages between user and assistant are not paired.")
-            return
+            return None
 
         try:
-            for _ in range(2):  # pop out two messages in a row
-                conversation.messages.pop(0)
+            # pop two messages (user + bot) to reduce context
+            conversation.messages.pop(0)
+            conversation.messages.pop(0)
+            # update the snapshot after trimming so the return value stays in
+            # sync with `conversation`.
+            conversation_copy = conversation.copy()
         except IndexError:
             gr.Error("Input text processing failed, unable to respond in this round.")
             return None
@@ -241,6 +273,13 @@ def predict(
         tokenizer,
         max_length=max_context_length_tokens,
     )
+
+    if conversation is None:
+        # generate_prompt_with_history already logged an error through the
+        # gradio UI; just terminate the generator with a useful message.
+        yield chatbot, history, "Unable to build prompt (history too long?)"
+        return
+
     prompts = convert_conversation_to_prompts(conversation)
 
     stop_words = conversation.stop_str
@@ -505,7 +544,7 @@ if __name__ == "__main__":
     demo.title = "DeepSeek-VL Chatbot"
 
     reload_javascript()
-    demo.queue(concurrency_count=CONCURRENT_COUNT).launch(
+    demo.queue().launch(
         share=False,
         favicon_path="deepseek_vl/serve/assets/favicon.ico",
         inbrowser=False,
