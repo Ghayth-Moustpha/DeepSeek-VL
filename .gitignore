@@ -274,6 +274,7 @@ $RECYCLE.BIN/
 *.msp
 *.txz
 
+/deepseek-env
 
 ##### Xcode.gitignore #####
 # Xcode
