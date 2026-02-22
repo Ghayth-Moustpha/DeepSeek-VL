@@ -381,14 +381,14 @@ class VisionTransformer(nn.Module):
         if patch_drop_rate > 0:
             self.patch_drop = PatchDropout(
                 patch_drop_rate,
-                num_prefix_tokens=self.num_prefix_tokens,
+                num_prefix_tokens=self.num_prefix_tokens, 
             )
         else:
             self.patch_drop = nn.Identity()
         self.norm_pre = norm_layer(embed_dim) if pre_norm else nn.Identity()
 
         dpr = [
-            x.item() for x in torch.linspace(0, drop_path_rate, depth)
+        x.item() for x in torch.linspace(0, drop_path_rate, depth , device="cpu")
         ]  # stochastic depth decay rule
         self.blocks = nn.Sequential(
             *[
