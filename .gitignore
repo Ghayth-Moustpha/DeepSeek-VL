@@ -275,7 +275,7 @@ $RECYCLE.BIN/
 *.txz
 
 /deepseek-env
-
+/dataset
 ##### Xcode.gitignore #####
 # Xcode
 #

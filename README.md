@@ -1,3 +1,38 @@
+# DeepSeek-VL BDD100K Evaluation Scripts
+
+This folder contains scripts to run a first experiment evaluating DeepSeek-VL (1.3B-chat)
+on the BDD100K dataset for autonomous driving perception tasks.
+
+Files:
+- `bdd100k_dataset.py` — lightweight loader that yields `(image_path, metadata)`.
+- `explore_bdd100k.py` — explores dataset layout and tag distributions.
+- `evaluate_deepseek_bdd100k.py` — runs the model on a balanced subset and saves results.
+
+Assumptions:
+- BDD100K dataset root is provided via `--bdd_root` and typically contains `images/` and `labels/`.
+- If tagging JSONs are present they will be used; otherwise tags are set to `unknown`.
+- The DeepSeek-VL model is loaded from `deepseek-ai/deepseek-vl-1.3b-chat` by default. Ensure you have access.
+
+Quick start:
+
+1. Inspect dataset distributions:
+
+```bash
+python explore_bdd100k.py --bdd_root /path/to/bdd100k --split val --n_sample 10
+```
+
+2. Run evaluation (example, 100 images):
+
+```bash
+python evaluate_deepseek_bdd100k.py --bdd_root /path/to/bdd100k --split val --num_samples 100 --out results.json
+```
+
+Notes:
+- The evaluation script uses the same model loading and generation code as `light_inference.py`.
+- The scripts attempt to handle common BDD100K directory layouts but may need `--bdd_root` adjusted.
+- Model inference as configured uses `torch_dtype=torch.float16` and `device_map='auto'` — change in the script if needed for CPU-only runs.
+
+If you want, I can run quick smoke checks, or adapt sampling strategies and analysis metrics.
 <!-- markdownlint-disable first-line-h1 -->
 <!-- markdownlint-disable html -->
 <!-- markdownlint-disable no-duplicate-header -->
