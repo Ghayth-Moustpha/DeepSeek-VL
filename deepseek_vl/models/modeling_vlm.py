@@ -52,7 +52,7 @@ def model_name_to_cls(cls_name):
 class VisionConfig(PretrainedConfig):
     model_type = "vision"
     cls: str = ""
-    params: AttrDict = {}
+    params: AttrDict = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -67,7 +67,7 @@ class VisionConfig(PretrainedConfig):
 class AlignerConfig(PretrainedConfig):
     model_type = "aligner"
     cls: str = ""
-    params: AttrDict = {}
+    params: AttrDict = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -81,9 +81,9 @@ class AlignerConfig(PretrainedConfig):
 
 class MultiModalityConfig(PretrainedConfig):
     model_type = "multi_modality"
-    vision_config: VisionConfig
-    aligner_config: AlignerConfig
-    language_config: LlamaConfig
+    vision_config: VisionConfig = None
+    aligner_config: AlignerConfig = None
+    language_config: LlamaConfig = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -105,6 +105,10 @@ class MultiModalityPreTrainedModel(PreTrainedModel):
     base_model_prefix = "multi_modality"
     _no_split_modules = []
     _skip_keys_device_placement = "past_key_values"
+    # Compatibility with recent transformers/accelerate, which may look for
+    # `all_tied_weights_keys` as a `{target: source}` mapping during auto
+    # device-map inference.
+    all_tied_weights_keys = {}
 
 
 class MultiModalityCausalLM(MultiModalityPreTrainedModel):
@@ -121,6 +125,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
 
         language_config = config.language_config
         self.language_model = LlamaForCausalLM(language_config)
+        self.post_init()
 
     def prepare_inputs_embeds(
         self,
