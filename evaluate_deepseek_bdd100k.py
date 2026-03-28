@@ -51,48 +51,70 @@ YES_NO_CHOICES = ["yes", "no"]
 TASK_DEFINITIONS = {
     "scene_classification": {
         "prompt": (
-            "Classify the scene type in this driving image. "
-            "Answer with exactly one label from: "
-            f"{', '.join(SCENE_CHOICES)}."
+            "Classify the scene type using only visible evidence in the image. "
+            "Do not guess from common driving defaults. "
+            "Choose the single best option and answer with only the label. "
+            "Options: "
+            "1. city street "
+            "2. residential "
+            "3. highway "
+            "4. tunnel "
+            "5. parking lot "
+            "6. gas stations"
         ),
         "max_new_tokens": 12,
     },
     "weather_classification": {
         "prompt": (
-            "Classify the weather in this driving image. "
-            "Answer with exactly one label from: "
-            f"{', '.join(WEATHER_CHOICES)}."
+            "Classify the weather using only visible evidence in the image. "
+            "Do not guess from common driving defaults. "
+            "Choose the single best option and answer with only the label. "
+            "Options: "
+            "1. clear "
+            "2. overcast "
+            "3. partly cloudy "
+            "4. rainy "
+            "5. snowy "
+            "6. foggy"
         ),
         "max_new_tokens": 8,
     },
     "timeofday_classification": {
         "prompt": (
-            "Classify the time of day in this driving image. "
-            "Answer with exactly one label from: "
-            f"{', '.join(TIMEOFDAY_CHOICES)}."
+            "Classify the time of day using only visible evidence in the image. "
+            "Choose the single best option and answer with only the label. "
+            "Options: "
+            "1. daytime "
+            "2. night "
+            "3. dawn/dusk"
         ),
         "max_new_tokens": 8,
     },
     "object_presence": {
         "prompt": (
-            "For this driving image, report whether each object category is present. "
-            "Answer as JSON using only true or false for these keys: "
-            "\"car\", \"person\", \"truck\", \"bus\", \"bike\", \"motor\", "
-            "\"traffic light\", \"traffic sign\"."
+            "Report whether each category is visibly present in the image. "
+            "Use only visible evidence and do not omit any key. "
+            "Answer with exactly this JSON format and only true or false values: "
+            "{\"car\": false, \"person\": false, \"truck\": false, "
+            "\"bus\": false, \"bike\": false, \"motor\": false, "
+            "\"traffic light\": false, \"traffic sign\": false}"
         ),
         "max_new_tokens": 120,
     },
     "traffic_light_state": {
         "prompt": (
             "What is the dominant visible traffic light state in this image? "
-            "Answer with exactly one label from: "
-            f"{', '.join(TRAFFIC_LIGHT_CHOICES)}."
+            "Use only visible traffic lights. "
+            "If no traffic light is clearly visible, answer none. "
+            "If a traffic light is visible but the state cannot be determined, answer unknown. "
+            "Answer with only one label: red, yellow, green, none, or unknown."
         ),
         "max_new_tokens": 6,
     },
     "drivable_area_presence": {
         "prompt": (
-            "Is there a direct drivable area visible ahead for the ego vehicle? "
+            "Is the lane or path directly in front of the ego vehicle drivable right now? "
+            "Use only what is visible in the image. "
             "Answer with exactly one word: yes or no."
         ),
         "max_new_tokens": 4,
