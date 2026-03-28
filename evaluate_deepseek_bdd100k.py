@@ -1,4 +1,5 @@
 import argparse
+import ast
 import json
 import random
 import re
@@ -82,7 +83,7 @@ TASK_DEFINITIONS = {
     "timeofday_classification": {
         "prompt": (
             "Classify the time of day using only visible evidence in the image. "
-            "Choose the single best option and answer with only the label. "
+            "Do not explain. Reply with exactly one label or one number only. "
             "Options: "
             "1. daytime "
             "2. night "
@@ -93,8 +94,9 @@ TASK_DEFINITIONS = {
     "object_presence": {
         "prompt": (
             "Report whether each category is visibly present in the image. "
-            "Use only visible evidence and do not omit any key. "
-            "Answer with exactly this JSON format and only true or false values: "
+            "Use only visible evidence. Count partially visible objects as present. "
+            "Do not omit any key and do not add any extra text. "
+            "Answer with one compact JSON object using only true or false values: "
             "{\"car\": false, \"person\": false, \"truck\": false, "
             "\"bus\": false, \"bike\": false, \"motor\": false, "
             "\"traffic light\": false, \"traffic sign\": false}"
@@ -107,7 +109,8 @@ TASK_DEFINITIONS = {
             "Use only visible traffic lights. "
             "If no traffic light is clearly visible, answer none. "
             "If a traffic light is visible but the state cannot be determined, answer unknown. "
-            "Answer with only one label: red, yellow, green, none, or unknown."
+            "Do not explain. Reply with exactly one label or one number only. "
+            "Options: 1. red 2. yellow 3. green 4. none 5. unknown"
         ),
         "max_new_tokens": 6,
     },
@@ -161,6 +164,9 @@ CANONICAL_VALUE_MAP = {
         "dawndusk": "dawn/dusk",
         "dawn/dusk": "dawn/dusk",
         "twilight": "dawn/dusk",
+        "1": "daytime",
+        "2": "night",
+        "3": "dawn/dusk",
     },
     "traffic_light": {
         "red": "red",
@@ -171,6 +177,11 @@ CANONICAL_VALUE_MAP = {
         "no light": "none",
         "not visible": "none",
         "unknown": "unknown",
+        "1": "red",
+        "2": "yellow",
+        "3": "green",
+        "4": "none",
+        "5": "unknown",
     },
     "yes_no": {
         "yes": "yes",
@@ -327,7 +338,10 @@ def try_extract_json_object(raw_text: str) -> Optional[Dict[str, Any]]:
     try:
         loaded = json.loads(candidate)
     except json.JSONDecodeError:
-        return None
+        try:
+            loaded = ast.literal_eval(candidate)
+        except (SyntaxError, ValueError):
+            return None
     return loaded if isinstance(loaded, dict) else None
 
 
@@ -384,6 +398,15 @@ def parse_object_presence(raw_text: str) -> Dict[str, Any]:
             parsed[category] = parsed_value
             if parsed_value is None:
                 invalid_categories.append(category)
+
+    # If the model returns a compact JSON with omitted keys, default only the
+    # missing keys to False when at least half of the schema was provided.
+    provided_keys = len(parsed) - len(invalid_categories)
+    if obj is not None and provided_keys >= len(CORE_OBJECT_CATEGORIES) // 2:
+        for category in CORE_OBJECT_CATEGORIES:
+            if parsed.get(category) is None:
+                parsed[category] = False
+        invalid_categories = [c for c, v in parsed.items() if v is None]
 
     return {
         "parsed": {key: value for key, value in parsed.items() if value is not None},
