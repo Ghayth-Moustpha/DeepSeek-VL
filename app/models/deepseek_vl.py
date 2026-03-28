@@ -50,6 +50,26 @@ class DeepSeekVLDriver:
         if self.verbose:
             print("Model and processor loaded.")
 
+    def _decode_output(self, output_ids) -> str:
+        """
+        Decode generated token ids into cleaner text.
+
+        Some tokenizer/model combinations can leak byte-level BPE markers such
+        as 'Ġ' into the final string. We first use the tokenizer's normal decode
+        path, then apply a minimal fallback cleanup if those markers remain.
+        """
+        answer = self.tokenizer.decode(
+            output_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=True,
+        )
+
+        # Fallback cleanup for byte-level BPE markers that occasionally leak
+        # through decode in misconfigured tokenizer setups.
+        answer = answer.replace("Ġ", " ").replace("Ċ", "\n")
+
+        return answer.strip()
+
     def analyze(
         self,
         prompt: str,
@@ -114,6 +134,8 @@ class DeepSeekVLDriver:
             "inputs_embeds": inputs_embeds,
             "attention_mask": prepare_inputs.attention_mask,
             "pad_token_id": self.tokenizer.eos_token_id,
+            "bos_token_id": self.tokenizer.bos_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
             "max_new_tokens": max_new_tokens,
             "do_sample": do_sample,
             "use_cache": True,
@@ -130,8 +152,7 @@ class DeepSeekVLDriver:
         outputs = self.model.language_model.generate(**gen_kwargs)
 
         # Decode
-        answer = self.tokenizer.decode(outputs[0].cpu().tolist(), skip_special_tokens=True)
-        return answer
+        return self._decode_output(outputs[0].cpu().tolist())
 
     def close(self):
         """Optional: free resources (if needed, but usually just delete the object)."""
