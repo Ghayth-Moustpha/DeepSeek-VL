@@ -114,26 +114,45 @@ class BDD100KDataset:
 
         return mapping
     def _load_detection_json(self) -> Dict[str, list]:
-        # Search for detection jsons
-        candidates = list(self.root.rglob("*det*.json"))
-        if not candidates:
-            return {}
-        path = candidates[0]
-        try:
-            with open(path, "r") as f:
-                data = json.load(f)
-        except Exception:
-            return {}
+        # Load annotations from standard BDD100K image label files as well as
+        # any detection-specific JSONs that may exist in alternate layouts.
+        candidates = []
+        if self.labels_json and self.labels_json.exists():
+            candidates.append(self.labels_json)
+        if self.labels_root:
+            candidates.extend(list(self.labels_root.rglob("*labels*.json")))
+            candidates.extend(list(self.labels_root.rglob("*det*.json")))
+        candidates.extend(list(self.root.rglob("*labels*.json")))
+        candidates.extend(list(self.root.rglob("*det*.json")))
 
-        mapping = {}
-        if isinstance(data, list):
-            for entry in data:
-                name = entry.get("name") or entry.get("image")
-                if not name:
-                    continue
-                mapping[name] = entry.get("labels") or entry.get("objects") or []
-        elif isinstance(data, dict):
-            mapping = data
+        mapping: Dict[str, list] = {}
+        seen = set()
+        for path in candidates:
+            resolved = str(path.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+
+            if isinstance(data, list):
+                for entry in data:
+                    name = entry.get("name") or entry.get("image")
+                    if not name:
+                        continue
+                    labels = entry.get("labels") or entry.get("objects")
+                    if labels is not None:
+                        mapping[name] = labels
+            elif isinstance(data, dict):
+                for name, info in data.items():
+                    if not isinstance(info, dict):
+                        continue
+                    labels = info.get("labels") or info.get("objects")
+                    if labels is not None:
+                        mapping[name] = labels
         return mapping
 
     def _image_name(self, path: str) -> str:
