@@ -54,16 +54,16 @@ def expand2square(pil_img, background_color):
 
 class VLMImageProcessorConfig(PretrainedConfig):
     model_type = "deepseek_vlm"
-    image_size: int
-    min_size: int
-    image_mean: Union[Tuple[float, float, float], List[float]]
-    image_std: Union[Tuple[float, float, float], List[float]]
-    rescale_factor: float
-    do_normalize: bool
+    image_size: int = 1024
+    min_size: int = 14
+    image_mean: Union[Tuple[float, float, float], List[float]] = IMAGENET_MEAN
+    image_std: Union[Tuple[float, float, float], List[float]] = IMAGENET_STD
+    rescale_factor: float = 1.0 / 255.0
+    do_normalize: bool = True
 
     def __init__(
         self,
-        image_size: int,
+        image_size: int = 1024,
         min_size: int = 14,
         image_mean: Union[Tuple[float, float, float], List[float]] = (
             0.48145466,
