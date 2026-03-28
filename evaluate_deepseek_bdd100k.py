@@ -269,6 +269,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable verbose model loading and progress messages.",
     )
+    parser.add_argument(
+        "--checkpoint_every",
+        type=int,
+        default=10,
+        help="Write checkpoint files every N completed images.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from an existing checkpoint JSONL file if present.",
+    )
     return parser.parse_args()
 
 
@@ -777,10 +788,76 @@ def ensure_parent_dir(path_str: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def checkpoint_jsonl_path(out_path: str) -> str:
+    path = Path(out_path)
+    return str(path.with_name(f"{path.stem}.checkpoint.jsonl"))
+
+
+def load_checkpoint_results(path_str: str) -> List[Dict[str, Any]]:
+    path = Path(path_str)
+    if not path.exists():
+        return []
+
+    results = []
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            results.append(json.loads(line))
+    return results
+
+
+def append_checkpoint_result(path_str: str, result: Dict[str, Any]) -> None:
+    ensure_parent_dir(path_str)
+    with open(path_str, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(result, ensure_ascii=False) + "\n")
+
+
+def write_outputs(
+    args: argparse.Namespace,
+    dataset: BDD100KDataset,
+    sampled_items: List[Tuple[str, Dict[str, Any]]],
+    results: List[Dict[str, Any]],
+    complete: bool,
+) -> Dict[str, Any]:
+    processed_items = sampled_items[: len(results)]
+    summary = compute_summary(processed_items, results)
+    output = {
+        "config": {
+            **resolved_config(args, dataset),
+            "checkpoint_every": args.checkpoint_every,
+            "resume": args.resume,
+            "checkpoint_jsonl": str(Path(checkpoint_jsonl_path(args.out)).resolve()),
+        },
+        "task_definitions": make_task_definitions_for_output(),
+        "summary": {
+            **summary,
+            "complete": complete,
+            "processed_images": len(results),
+            "total_planned_images": len(sampled_items),
+        },
+        "results": results,
+    }
+
+    ensure_parent_dir(args.out)
+    with open(args.out, "w", encoding="utf-8") as handle:
+        json.dump(output, handle, indent=2)
+
+    if args.summary_out:
+        ensure_parent_dir(args.summary_out)
+        with open(args.summary_out, "w", encoding="utf-8") as handle:
+            json.dump(output["summary"], handle, indent=2)
+
+    return output["summary"]
+
+
 def main() -> None:
     args = parse_args()
     if args.num_samples <= 0:
         raise ValueError("--num_samples must be positive.")
+    if args.checkpoint_every <= 0:
+        raise ValueError("--checkpoint_every must be positive.")
 
     from app.models.deepseek_vl import DeepSeekVLDriver
 
@@ -800,11 +877,25 @@ def main() -> None:
         )
 
     sampled_items = balanced_sample(dataset, args.num_samples, args.seed)
+    checkpoint_path = checkpoint_jsonl_path(args.out)
+    ensure_parent_dir(checkpoint_path)
+
+    results: List[Dict[str, Any]] = []
+    completed_images = set()
+    if args.resume:
+        results = load_checkpoint_results(checkpoint_path)
+        completed_images = {result["image"] for result in results}
+        if args.verbose and results:
+            print(f"Resuming from {len(results)} checkpointed results in {checkpoint_path}")
 
     driver = DeepSeekVLDriver(model_path=args.model_path, verbose=args.verbose)
-    results: List[Dict[str, Any]] = []
     try:
         for index, (image_path, metadata) in enumerate(sampled_items, start=1):
+            if image_path in completed_images:
+                if args.verbose:
+                    print(f"[{index}/{len(sampled_items)}] Skipping completed {image_path}")
+                continue
+
             if args.verbose:
                 print(f"[{index}/{len(sampled_items)}] Evaluating {image_path}")
 
@@ -829,41 +920,48 @@ def main() -> None:
                 )
             latency_s = time.perf_counter() - start_time
 
-            results.append(
-                {
-                    "image": image_path,
-                    "metadata": metadata,
-                    "ground_truth": ground_truth,
-                    "predictions": predictions,
-                    "scores": scores,
-                    "latency_s": round(latency_s, 4),
-                    "raw_outputs": raw_outputs,
-                }
-            )
+            result = {
+                "image": image_path,
+                "metadata": metadata,
+                "ground_truth": ground_truth,
+                "predictions": predictions,
+                "scores": scores,
+                "latency_s": round(latency_s, 4),
+                "raw_outputs": raw_outputs,
+            }
+            results.append(result)
+            completed_images.add(image_path)
+            append_checkpoint_result(checkpoint_path, result)
+
+            if len(results) % args.checkpoint_every == 0:
+                summary = write_outputs(
+                    args=args,
+                    dataset=dataset,
+                    sampled_items=sampled_items,
+                    results=results,
+                    complete=False,
+                )
+                if args.verbose:
+                    print(
+                        f"Checkpoint saved after {len(results)} images "
+                        f"(accuracy snapshot: {summary['tasks']['timeofday_classification']['accuracy']})"
+                    )
     finally:
         driver.close()
 
-    summary = compute_summary(sampled_items, results)
-    output = {
-        "config": resolved_config(args, dataset),
-        "task_definitions": make_task_definitions_for_output(),
-        "summary": summary,
-        "results": results,
-    }
-
-    ensure_parent_dir(args.out)
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(output, handle, indent=2)
-
-    if args.summary_out:
-        ensure_parent_dir(args.summary_out)
-        with open(args.summary_out, "w", encoding="utf-8") as handle:
-            json.dump(summary, handle, indent=2)
+    write_outputs(
+        args=args,
+        dataset=dataset,
+        sampled_items=sampled_items,
+        results=results,
+        complete=True,
+    )
 
     if args.verbose:
         print(f"Saved full results to {args.out}")
         if args.summary_out:
             print(f"Saved summary to {args.summary_out}")
+        print(f"Checkpoint JSONL: {checkpoint_path}")
 
 
 if __name__ == "__main__":
