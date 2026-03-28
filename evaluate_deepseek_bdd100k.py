@@ -93,22 +93,30 @@ TASK_DEFINITIONS = {
     },
     "object_presence": {
         "prompt": (
-            "Report whether each category is visibly present in the image. "
-            "Use only visible evidence. Count partially visible objects as present. "
+            "Inspect the image carefully from left to right, center, near distance, and far distance. "
+            "For each category, answer true if at least one instance is visible anywhere in the image, "
+            "even if it is small, distant, partially occluded, blurry, or near the image edge. "
+            "Do not default to all false. Use false only after checking that category and not seeing it. "
+            "Cars, traffic lights, and traffic signs are common in driving scenes, so check those "
+            "categories carefully before answering. "
             "Do not omit any key and do not add any extra text. "
-            "Answer with one compact JSON object using only true or false values: "
+            "Answer with one compact JSON object using only true or false values, exactly in this schema: "
             "{\"car\": false, \"person\": false, \"truck\": false, "
             "\"bus\": false, \"bike\": false, \"motor\": false, "
             "\"traffic light\": false, \"traffic sign\": false}"
         ),
-        "max_new_tokens": 120,
+        "max_new_tokens": 140,
     },
     "traffic_light_state": {
         "prompt": (
-            "What is the dominant visible traffic light state in this image? "
-            "Use only visible traffic lights. "
-            "If no traffic light is clearly visible, answer none. "
-            "If a traffic light is visible but the state cannot be determined, answer unknown. "
+            "Determine the traffic light state relevant to the ego vehicle. "
+            "First decide whether any traffic light is visible at all. "
+            "If none is visible, answer none. "
+            "If one or more traffic lights are visible but the illuminated color cannot be read clearly, "
+            "answer unknown. "
+            "If multiple traffic lights are visible, choose the one most likely controlling the ego lane; "
+            "if that is unclear, choose the largest or most central visible traffic light. "
+            "Do not default to red. Use only visible illuminated color. "
             "Do not explain. Reply with exactly one label or one number only. "
             "Options: 1. red 2. yellow 3. green 4. none 5. unknown"
         ),
